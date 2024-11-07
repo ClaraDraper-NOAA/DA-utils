@@ -24,54 +24,72 @@
 
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
- subroutine setup_grid(localpet, npets, dir_fix, res_atm, & 
-                       dir_rst, fname_rst, mask_type, mod_grid)
+ subroutine setup_grid(localpet, npets, file_type,  & 
+                       dir_mask, fname_mask, mask_type, mod_grid, &
+                       ! optional arguments for file_type='fv3*'
+                       res_atm, dir_fix, &
+                       ! optional arguments for file_type='gau*'
+                       i_dim, j_dim )
 
  implicit none
 
  ! INTENT IN
- character(*), intent(in)       :: dir_fix
- integer, intent(in)            :: res_atm
- character(*), intent(in)       :: fname_rst, dir_rst
+ character(7), intent(in)       :: file_type
+ character(*), intent(in)       :: fname_mask, dir_mask
  character(*), intent(in)       :: mask_type
  integer, intent(in)            :: localpet, npets
+ ! NEEDED FOR FV3 GRID
+ integer, intent(in), optional            :: res_atm
+ character(*), intent(in), optional       :: dir_fix
+ ! NEEDED FOR GAUSS GRID
+ integer, intent(in), optional            :: i_dim, j_dim
 
  ! INTENT OUT 
  type(esmf_grid)                :: mod_grid
 
  ! LOCAL
- type(esmf_field)               :: vtype_field(1)
- real(esmf_kind_r8), pointer    :: ptr_vtype(:,:)
+ type(esmf_field)               :: mask_field(1)
+ real(esmf_kind_r8), pointer    :: ptr_maskvar(:,:)
  integer(esmf_kind_i4), pointer :: ptr_mask(:,:)
 
  integer                        :: ierr, ncid, tile
- character(len=10)              :: variable_list(1)
+ character(len=15)              :: mask_variable(1)
 
 
 !--------------------------
-! Create grid object
+! Create grid object, and set up pet distribution
 
- call create_grid_fv3(res_atm, trim(dir_fix), npets, localpet ,mod_grid)
+ select case (file_type)
+ case ('fv3_rst')
+     call create_grid_fv3(res_atm, trim(dir_fix), npets, localpet ,mod_grid)
+     mask_variable(1) = 'vtype          '
+ case ('gau_inc')
+     call create_grid_gauss(i_dim, j_dim, npets, localpet, mod_grid)
+     mask_variable(1) = 'soilsnow_mask  '
+ case default 
+     call error_handler("unknown file_type in setup_grid", 1)
+ end select
 
 !--------------------------
 ! Calcalate and add the mask
 
- if (mask_type=="soil") then ! mask out ocean and glaciers 
-     vtype_field(1) = ESMF_FieldCreate(mod_grid, &
+ if (mask_type=="soil") then 
+ ! mask out ocean and glaciers, using vegetation class
+
+     mask_field(1) = ESMF_FieldCreate(mod_grid, &
                                        typekind=ESMF_TYPEKIND_R8, &
                                        staggerloc=ESMF_STAGGERLOC_CENTER, &
-                                       name="input veg type for mask", &
+                                       name="input variable for mask", &
                                        rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("IN FieldCreate, vtype", ierr)
+        call error_handler("IN FieldCreate, mask_variable", ierr)
 
-     variable_list(1) = 'vtype     '
-     call read_into_fields(localpet, res_atm, res_atm, fname_rst, 1, variable_list(1), &
-                           dir_rst, vtype_field(1))
+     call read_into_fields(localpet, res_atm, res_atm, trim(fname_mask), 1, mask_variable(1), &
+                           dir_mask, mask_field(1))
 
     ! get pointer to vegtype
-     call ESMF_FieldGet(vtype_field(1), &
-                        farrayPtr=ptr_vtype, &
+     call ESMF_FieldGet(mask_field(1), &
+                        farrayPtr=ptr_maskvar, &
                         rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("IN FieldGet", ierr)
@@ -93,18 +111,19 @@
 
     ! calculate the mask
      ptr_mask = 1 ! initialize land everywhere
-     where (nint(ptr_vtype) == vtype_water )   ptr_mask = 0 ! exclude water
-     where (nint(ptr_vtype) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
+     if (mask_variable(1) == 'vtype          ') then
+         where (nint(ptr_maskvar) == vtype_water )   ptr_mask = 0 ! exclude water
+         where (nint(ptr_maskvar) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
+     end if
 
     ! destroy veg type field
-     call ESMF_FieldDestroy(vtype_field(1),rc=ierr)
+     call ESMF_FieldDestroy(mask_field(1),rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("DESTROYING FIELD", ierr)
 
   end if ! mask = soil 
 
  end subroutine setup_grid
-
 
  ! read variables from fv3 netcdf restart file into ESMF Fields
  subroutine read_into_fields(localpet, i_dim, j_dim , fname_read, n_vars, variable_list, & 
@@ -117,7 +136,7 @@
  character(*), intent(in)        :: fname_read
  character(*), intent(in)        :: dir_read
 
- character(len=10), dimension(n_vars), intent(in)   :: variable_list
+ character(len=15), dimension(n_vars), intent(in)   :: variable_list
  
  ! INTENT OUT 
  type(esmf_field), dimension(n_vars), intent(inout) :: fields
@@ -186,7 +205,7 @@
  integer, intent(in)             :: localpet, i_dim, j_dim, n_vars
  character(*), intent(in)        :: fname_out
  character(*), intent(in)        :: dir_out
- character(10), dimension(n_vars), intent(in)     :: variable_list
+ character(15), dimension(n_vars), intent(in)     :: variable_list
  type(esmf_field), dimension(n_vars), intent(in)  :: fields
 
  ! LOCAL
@@ -303,10 +322,10 @@
 
  end subroutine create_grid_fv3
 
- subroutine create_grid_gauss(i_input, j_input, npets, localpet, gauss_grid)
+ subroutine create_grid_gauss(i_dim, j_dim, npets, localpet, gauss_grid)
 
  ! INTENT IN
- integer, intent(in)   :: i_input, j_input 
+ integer, intent(in)   :: i_dim, j_dim
  integer, intent(in)   :: npets, localpet
  
  ! INTENT OUT 
@@ -317,9 +336,9 @@
 
  polekindflag(1:2) = ESMF_POLEKIND_MONOPOLE
 
- if (localpet == 0) print*," creating fv3 gauss for ", i_input, j_input
+ if (localpet == 0) print*," creating fv3 gauss for ", i_dim, j_dim
  gauss_grid = ESMF_GridCreate1PeriDim(minIndex=(/1,1/), &
-                                    maxIndex=(/i_input,j_input/), &
+                                    maxIndex=(/i_dim,j_dim/), &
                                     polekindflag=polekindflag, &
                                     periodicDim=1, &
                                     poleDim=2,  &

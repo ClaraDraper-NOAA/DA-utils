@@ -23,10 +23,11 @@
  ! namelist inputs
  character(len=500)             :: dir_fix
  integer                        :: res_atm_in, res_atm_out
- character(len=500)             :: dir_in, dir_out, dir_out_rst !out_rst needed for soil mask
- character(len=100)             :: fname_in, fname_out, fname_out_rst
- character(len=10)              :: variable_list(max_vars)
+ character(len=500)             :: dir_in, dir_out, dir_out_mask !out_rst needed for soil mask
+ character(len=100)             :: fname_in, fname_out, fname_out_mask
+ character(len=15)              :: variable_list(max_vars)
  character(len=10)              :: mask_type
+ character(len=7)               :: gridtype_in, gridtype_out
  integer                        :: n_vars
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
 
@@ -43,9 +44,11 @@
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
- namelist /config/ dir_fix, res_atm_in, res_atm_out, fname_in, dir_in, &
-                   fname_out, dir_out, fname_out_rst, dir_out_rst, &
-                   variable_list, n_vars, missing_value, mask_type
+ namelist /config/ fname_in, dir_in, gridtype_in, &
+                   fname_out, dir_out, gridtype_out, &
+                   fname_out_mask, dir_out_mask, &
+                   n_vars, variable_list, missing_value, mask_type, &
+                   res_atm_in, res_atm_out, dir_fix ! needed for fv3* grids
 
 !-------------------------------------------------------------------------
 ! INITIALIZE
@@ -84,24 +87,26 @@
 
  missing_value=-999. ! set defualt
 
- open(41, file='tile2tile.nml', iostat=ierr)
- if (ierr /= 0) call error_handler("OPENING tile2tile NAMELIST.", ierr)
+ open(41, file='regrid.nml', iostat=ierr)
+ if (ierr /= 0) call error_handler("OPENING regrid NAMELIST.", ierr)
  read(41, nml=config, iostat=ierr)
- if (ierr /= 0) call error_handler("READING tile2tile NAMELIST.", ierr)
+ if (ierr /= 0) call error_handler("READING regrid NAMELIST.", ierr)
  close (41)
 
 !------------------------
 ! Create esmf grid objects for input and output grids, and add land masks
 
-! TO DO - can we make the number of tasks more flexible?
-
+! TO DO - can we make the number of tasks more flexible for fv3
 
  if (localpet==0) print*,'** Setting up grids'
- call setup_grid(localpet, npets,  trim(dir_fix), res_atm_in,  & 
-                  trim(dir_in), trim(fname_in), trim(mask_type), grid_in)
+ ! for now, input file and input_mask file are the same thing.
+ call setup_grid(localpet, npets, gridtype_in, & 
+                  trim(dir_in), trim(fname_in), trim(mask_type), grid_in, &
+                  res_atm_in, trim(dir_fix) )
  
- call setup_grid(localpet, npets,  trim(dir_fix), res_atm_out, & 
-                  trim(dir_out_rst), trim(fname_out_rst), trim(mask_type), grid_out)
+ call setup_grid(localpet, npets, gridtype_out, & 
+                  trim(dir_out_mask), trim(fname_out_mask), trim(mask_type), grid_out, &
+                  res_atm_out, trim(dir_fix) )
 
 !------------------------
 ! Create input and output fields
