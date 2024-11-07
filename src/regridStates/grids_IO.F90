@@ -25,7 +25,7 @@
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
  subroutine setup_grid(localpet, npets, dir_fix, res_atm, & 
-                       dir_rst, fname_rst, mask_type, fv3_grid)
+                       dir_rst, fname_rst, mask_type, mod_grid)
 
  implicit none
 
@@ -37,52 +37,27 @@
  integer, intent(in)            :: localpet, npets
 
  ! INTENT OUT 
- type(esmf_grid)                :: fv3_grid
+ type(esmf_grid)                :: mod_grid
 
  ! LOCAL
  type(esmf_field)               :: vtype_field(1)
  real(esmf_kind_r8), pointer    :: ptr_vtype(:,:)
  integer(esmf_kind_i4), pointer :: ptr_mask(:,:)
 
- character(len=500)             :: fname, dir_fix_res
- integer                        :: extra, ierr, ncid, tile
- integer                        :: decomptile(2,n_tiles)
+ integer                        :: ierr, ncid, tile
  character(len=10)              :: variable_list(1)
- character(len=5)               :: rchar
 
 
- if (localpet == 0) print*," creating grid for ", res_atm 
+!--------------------------
+! Create grid object
 
-! pet distribution
- extra = npets / n_tiles
-
- do tile = 1, n_tiles
-   decomptile(:,tile)=(/1,extra/)
- enddo
-
- ! mosaic file 
- write(rchar,'(i3.3)') res_atm
-
- dir_fix_res = dir_fix//"/C"//trim(rchar)//"/"
-
- fname = trim(dir_fix_res)//"/C"//trim(rchar)// "_mosaic.nc"
- 
-! create the grid
- fv3_grid = ESMF_GridCreateMosaic(filename=trim(fname), &
-                                  regDecompPTile=decomptile, &
-                                  staggerLocList=(/ESMF_STAGGERLOC_CENTER, ESMF_STAGGERLOC_CORNER, &
-                                                   ESMF_STAGGERLOC_EDGE1, ESMF_STAGGERLOC_EDGE2/), &
-                                  indexflag=ESMF_INDEX_GLOBAL, &
-                                  tileFilePath=trim(dir_fix_res), &
-                                  rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-    call error_handler("IN GridCreateMosaic", ierr)
+ call create_grid_fv3(res_atm, trim(dir_fix), npets, localpet ,mod_grid)
 
 !--------------------------
 ! Calcalate and add the mask
 
  if (mask_type=="soil") then ! mask out ocean and glaciers 
-     vtype_field(1) = ESMF_FieldCreate(fv3_grid, &
+     vtype_field(1) = ESMF_FieldCreate(mod_grid, &
                                        typekind=ESMF_TYPEKIND_R8, &
                                        staggerloc=ESMF_STAGGERLOC_CENTER, &
                                        name="input veg type for mask", &
@@ -102,14 +77,14 @@
         call error_handler("IN FieldGet", ierr)
 
     ! create and get pointer to the mask
-     call ESMF_GridAddItem(fv3_grid, &
+     call ESMF_GridAddItem(mod_grid, &
                            itemflag=ESMF_GRIDITEM_MASK, &
                            staggerloc=ESMF_STAGGERLOC_CENTER, &
                            rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("in GridAddItem mask", ierr)
 
-     call ESMF_GridGetItem(fv3_grid, & 
+     call ESMF_GridGetItem(mod_grid, & 
                            itemflag=ESMF_GRIDITEM_MASK, &
                            farrayPtr=ptr_mask, &
                            rc=ierr)
@@ -281,4 +256,78 @@
 
  end subroutine write_from_fields
 
+ ! subroutine to create grid object for fv3 grid
+ ! also sets distribution across procs 
+
+ subroutine create_grid_fv3(res_atm, dir_fix, npets, localpet, fv3_grid)
+
+! INTENT IN
+ integer, intent(in)    :: npets, localpet
+ integer, intent(in)    :: res_atm
+ character(*), intent(in)       :: dir_fix
+
+ ! INTENT OUT 
+ type(esmf_grid)                :: fv3_grid
+
+ integer                :: ierr, extra, tile 
+ integer                :: decomptile(2,n_tiles)
+ 
+ character(len=5)       :: rchar
+ character(len=500)     :: fname, dir_fix_res
+
+ if (localpet == 0) print*," creating fv3 grid for ", res_atm 
+
+! pet distribution
+ extra = npets / n_tiles
+ do tile = 1, n_tiles
+   decomptile(:,tile)=(/1,extra/)
+ enddo
+
+ ! mosaic file 
+ write(rchar,'(i3.3)') res_atm
+
+ dir_fix_res = dir_fix//"/C"//trim(rchar)//"/"
+
+ fname = trim(dir_fix_res)//"/C"//trim(rchar)// "_mosaic.nc"
+ 
+! create the grid
+ fv3_grid = ESMF_GridCreateMosaic(filename=trim(fname), &
+                                  regDecompPTile=decomptile, &
+                                  staggerLocList=(/ESMF_STAGGERLOC_CENTER, ESMF_STAGGERLOC_CORNER, &
+                                                   ESMF_STAGGERLOC_EDGE1, ESMF_STAGGERLOC_EDGE2/), &
+                                  indexflag=ESMF_INDEX_GLOBAL, &
+                                  tileFilePath=trim(dir_fix_res), &
+                                  rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN GridCreateMosaic", ierr)
+
+ end subroutine create_grid_fv3
+
+ subroutine create_grid_gauss(i_input, j_input, npets, localpet, gauss_grid)
+
+ ! INTENT IN
+ integer, intent(in)   :: i_input, j_input 
+ integer, intent(in)   :: npets, localpet
+ 
+ ! INTENT OUT 
+ type(esmf_grid)                :: gauss_grid
+
+ type(esmf_polekind_flag)         :: polekindflag(2)
+ integer :: ierr
+
+ polekindflag(1:2) = ESMF_POLEKIND_MONOPOLE
+
+ if (localpet == 0) print*," creating fv3 gauss for ", i_input, j_input
+ gauss_grid = ESMF_GridCreate1PeriDim(minIndex=(/1,1/), &
+                                    maxIndex=(/i_input,j_input/), &
+                                    polekindflag=polekindflag, &
+                                    periodicDim=1, &
+                                    poleDim=2,  &
+                                    coordSys=ESMF_COORDSYS_SPH_DEG, &
+                                    regDecomp=(/1,npets/),  &
+                                    indexflag=ESMF_INDEX_GLOBAL, rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN GridCreate1PeriDim", ierr)
+
+ end subroutine create_grid_gauss
 end  module grids_IO
