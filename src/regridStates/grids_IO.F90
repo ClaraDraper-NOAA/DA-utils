@@ -1,4 +1,4 @@
- module fv3_grid
+ module grids_IO
  ! ESMF grid-specific routines for GFS regridding program, including IO.
  ! 
  ! Clara Draper, Aug 2024.
@@ -281,4 +281,4 @@
 
  end subroutine write_from_fields
 
-end  module fv3_grid
+end  module grids_IO

@@ -9,7 +9,7 @@
  use mpi_f08
  use esmf
 
- use fv3_grid, only     : setup_grid, &
+ use grids_IO, only     : setup_grid, &
                           write_from_fields, &
                           read_into_fields, &
                           n_tiles
