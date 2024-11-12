@@ -22,7 +22,7 @@
  
  ! namelist inputs
  character(len=500)             :: dir_fix
- integer                        :: res_atm_in, res_atm_out
+ integer                        :: ires_in, jres_in, ires_out, jres_out
  character(len=500)             :: dir_in, dir_out, dir_out_mask !out_rst needed for soil mask
  character(len=100)             :: fname_in, fname_out, fname_out_mask
  character(len=15)              :: variable_list(max_vars)
@@ -48,7 +48,8 @@
                    fname_out, dir_out, gridtype_out, &
                    fname_out_mask, dir_out_mask, &
                    n_vars, variable_list, missing_value, mask_type, &
-                   res_atm_in, res_atm_out, dir_fix ! needed for fv3* grids
+                   ires_in, jres_in, ires_out, jres_out, &
+                   dir_fix ! only needed for fv3* grids
 
 !-------------------------------------------------------------------------
 ! INITIALIZE
@@ -102,11 +103,11 @@
  ! for now, input file and input_mask file are the same thing.
  call setup_grid(localpet, npets, gridtype_in, & 
                   trim(dir_in), trim(fname_in), trim(mask_type), grid_in, &
-                  res_atm_in, trim(dir_fix) )
+                  ires_in, jres_in, trim(dir_fix) )
  
  call setup_grid(localpet, npets, gridtype_out, & 
                   trim(dir_out_mask), trim(fname_out_mask), trim(mask_type), grid_out, &
-                  res_atm_out, trim(dir_fix) )
+                  ires_out, jres_out, trim(dir_fix) )
 
 !------------------------
 ! Create input and output fields
@@ -158,7 +159,7 @@
 !------------------------
 ! read data into input fields
 
- call read_into_fields(localpet, res_atm_in, res_atm_in, trim(fname_in), n_vars, &
+ call read_into_fields(localpet, ires_in, jres_in, trim(fname_in), n_vars, &
                        variable_list(1:n_vars), trim(dir_in), fields_in) 
 
  call cpu_time(t2)
@@ -208,7 +209,7 @@
 
  if (localpet==0) print*,'** Writing out regridded fields'
 
- call write_from_fields(localpet, res_atm_out, res_atm_out, trim(fname_out),  &
+ call write_from_fields(localpet, ires_out, jres_out, trim(fname_out),  &
                         n_vars, variable_list(1:n_vars), trim(dir_out), fields_out)
 
 

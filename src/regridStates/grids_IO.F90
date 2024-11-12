@@ -26,10 +26,7 @@
 ! Create ESMF grid objects, with mask if requested
  subroutine setup_grid(localpet, npets, file_type,  & 
                        dir_mask, fname_mask, mask_type, mod_grid, &
-                       ! optional arguments for file_type='fv3*'
-                       res_atm, dir_fix, &
-                       ! optional arguments for file_type='gau*'
-                       i_dim, j_dim )
+                       ires, jres, dir_fix )
 
  implicit none
 
@@ -38,11 +35,9 @@
  character(*), intent(in)       :: fname_mask, dir_mask
  character(*), intent(in)       :: mask_type
  integer, intent(in)            :: localpet, npets
+ integer, intent(in)            :: ires, jres
  ! NEEDED FOR FV3 GRID
- integer, intent(in), optional            :: res_atm
- character(*), intent(in), optional       :: dir_fix
- ! NEEDED FOR GAUSS GRID
- integer, intent(in), optional            :: i_dim, j_dim
+ character(*), intent(in)       :: dir_fix
 
  ! INTENT OUT 
  type(esmf_grid)                :: mod_grid
@@ -61,10 +56,10 @@
 
  select case (file_type)
  case ('fv3_rst')
-     call create_grid_fv3(res_atm, trim(dir_fix), npets, localpet ,mod_grid)
+     call create_grid_fv3(ires, trim(dir_fix), npets, localpet ,mod_grid)
      mask_variable(1) = 'vtype          '
  case ('gau_inc')
-     call create_grid_gauss(i_dim, j_dim, npets, localpet, mod_grid)
+     call create_grid_gauss(ires, jres, npets, localpet, mod_grid)
      mask_variable(1) = 'soilsnow_mask  '
  case default 
      call error_handler("unknown file_type in setup_grid", 1)
@@ -84,7 +79,7 @@
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("IN FieldCreate, mask_variable", ierr)
 
-     call read_into_fields(localpet, res_atm, res_atm, trim(fname_mask), 1, mask_variable(1), &
+     call read_into_fields(localpet, ires, jres, trim(fname_mask), 1, mask_variable(1), &
                            dir_mask, mask_field(1))
 
     ! get pointer to vegtype
