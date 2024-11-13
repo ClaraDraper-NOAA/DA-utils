@@ -15,7 +15,15 @@
  integer, public, parameter  :: n_tiles=6 ! number tiles in fv3 grid
  integer, public, parameter  :: vtype_water=0, & ! TO DO - which veg classification is this?
                                 vtype_landice=15 ! used for soil mask
- !type, public  :: 
+ type, public  :: grid_setup_type
+        character(7)   :: descriptor
+        character(100) :: fname
+        character(100) :: dir
+        character(100) :: fname_mask
+        character(100) :: dir_mask
+        character(100) :: fname_coord
+        character(100) :: dir_coord
+ end type
  
  public :: setup_grid, &
            read_into_fields, &
@@ -25,20 +33,17 @@
 
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
- subroutine setup_grid(localpet, npets, grid_type,  & 
-                       dir_mask, fname_mask, mask_type, mod_grid, &
-                       ires, jres, dir_fix )
+ subroutine setup_grid(localpet, npets, grid_setup,  & 
+                       mask_type, mod_grid, &
+                       ires, jres)
 
  implicit none
 
  ! INTENT IN
- character(7), intent(in)       :: grid_type
- character(*), intent(in)       :: fname_mask, dir_mask
+ type(grid_setup_type), intent(in)    :: grid_setup
  character(*), intent(in)       :: mask_type
  integer, intent(in)            :: localpet, npets
  integer, intent(in)            :: ires, jres
- ! NEEDED FOR FV3 GRID
- character(*), intent(in)       :: dir_fix
 
  ! INTENT OUT 
  type(esmf_grid)                :: mod_grid
@@ -51,19 +56,18 @@
  integer                        :: ierr, ncid, tile
  character(len=15)              :: mask_variable(1)
 
-
 !--------------------------
 ! Create grid object, and set up pet distribution
 
- select case (grid_type)
+ select case (grid_setup%descriptor)
  case ('fv3_rst')
-     call create_grid_fv3(ires, trim(dir_fix), npets, localpet ,mod_grid)
+     call create_grid_fv3(ires, trim(grid_setup%dir_coord), npets, localpet ,mod_grid)
      mask_variable(1) = 'vtype          '
  case ('gau_inc')
      call create_grid_gauss(ires, jres, npets, localpet, mod_grid)
      mask_variable(1) = 'soilsnow_mask  '
  case default 
-     call error_handler("unknown grid_type in setup_grid", 1)
+     call error_handler("unknown grid_setup%descriptor in setup_grid", 1)
  end select
 
 !--------------------------
@@ -80,8 +84,9 @@
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("IN FieldCreate, mask_variable", ierr)
 
-     call read_into_fields(localpet, ires, jres, trim(fname_mask), grid_type, 1, mask_variable(1), &
-                           dir_mask, mask_field(1))
+     call read_into_fields(localpet, ires, jres, trim(grid_setup%fname_mask), &
+                             trim(grid_setup%dir_mask), grid_setup, 1, &
+                             mask_variable(1), mask_field(1))
 
     ! get pointer to vegtype
      call ESMF_FieldGet(mask_field(1), &
@@ -122,8 +127,8 @@
  end subroutine setup_grid
 
  ! read variables from fv3 netcdf restart file into ESMF Fields
- subroutine read_into_fields(localpet, i_dim, j_dim , fname_read, grid_type, n_vars, variable_list, & 
-                             dir_read, fields) 
+ subroutine read_into_fields(localpet, i_dim, j_dim , fname_read, dir_read, &
+                               grid_setup, n_vars, variable_list, fields) 
  
  implicit none 
 
@@ -131,7 +136,7 @@
  integer, intent(in)             :: localpet, i_dim, j_dim, n_vars
  character(*), intent(in)        :: fname_read
  character(*), intent(in)        :: dir_read
- character(7), intent(in)        :: grid_type
+ type(grid_setup_type), intent(in)        :: grid_setup
 
  character(len=15), dimension(n_vars), intent(in)   :: variable_list
  
@@ -154,13 +159,13 @@
      allocate(array2D(0,0))
  end if
 
- select case (grid_type)
+ select case (grid_setup%descriptor)
  case ('fv3_rst')
      n_files=n_tiles
  case ('gau_inc') 
      n_files=1
  case default
-     call error_handler("unknown grid_type in read into fields", 1)
+     call error_handler("unknown grid_setup%descriptor in read into fields", 1)
  end select
      
  do tt = 1, n_files
@@ -209,8 +214,8 @@
 
 ! write variables from ESMF Fields into netcdf restart-like file 
 
- subroutine write_from_fields(localpet, i_dim, j_dim , fname_out, n_vars, variable_list, & 
-                          dir_out, fields) 
+ subroutine write_from_fields(localpet, i_dim, j_dim , fname_out, dir_out, &
+                                n_vars, variable_list, fields) 
 
  implicit none 
 
@@ -305,7 +310,7 @@
  integer                :: decomptile(2,n_tiles)
  
  character(len=5)       :: rchar
- character(len=500)     :: fname, dir_fix_res
+ character(len=200)     :: fname, dir_fix_res
 
  if (localpet == 0) print*," creating fv3 grid for ", res_atm 
 
@@ -317,10 +322,7 @@
 
  ! mosaic file 
  write(rchar,'(i3)') res_atm
- !write(rchar,'(i)') res_atm
-
  dir_fix_res = dir_fix//"/C"//trim(adjustl(rchar))//"/"
-
  fname = trim(dir_fix_res)//"/C"//trim(adjustl(rchar))// "_mosaic.nc"
  
 ! create the grid

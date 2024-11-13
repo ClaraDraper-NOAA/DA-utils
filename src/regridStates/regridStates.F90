@@ -12,7 +12,8 @@
  use grids_IO, only     : setup_grid, &
                           write_from_fields, &
                           read_into_fields, &
-                          n_tiles
+                          n_tiles, &
+                          grid_setup_type
 
  use utilities, only    : error_handler
 
@@ -21,15 +22,17 @@
  integer, parameter             :: max_vars = 10  ! increase if wish to specify more variables
  
  ! namelist inputs
- character(len=500)             :: dir_fix
+ character(len=100)             :: dir_fix
  integer                        :: ires_in, jres_in, ires_out, jres_out
- character(len=500)             :: dir_in, dir_out, dir_out_mask !out_rst needed for soil mask
+ character(len=100)             :: dir_in, dir_out, dir_out_mask
  character(len=100)             :: fname_in, fname_out, fname_out_mask
  character(len=15)              :: variable_list(max_vars)
  character(len=10)              :: mask_type
  character(len=7)               :: gridtype_in, gridtype_out
  integer                        :: n_vars
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
+
+ type(grid_setup_type)          :: grid_setup_in, grid_setup_out
 
  integer                        :: ierr, localpet, npets
  integer                        :: v, SRCTERM
@@ -96,20 +99,41 @@
  if (ierr /= 0) call error_handler("READING regrid NAMELIST.", ierr)
  close (41)
 
+  
+ grid_setup_in%descriptor = gridtype_in
+
+ ! if in
+     grid_setup_in%dir_mask = dir_in ! for fv3 and gauss use input file for mask
+     grid_setup_in%fname_mask = fname_in 
+ grid_setup_in%dir = dir_in ! for fv3 and gauss use input file for mask
+ grid_setup_in%fname = fname_in 
+ ! if gau_inc
+ !grid_setup_in%dir_coord = dir_in
+ grid_setup_in%dir_coord = dir_fix
+ !grid_setup_in%fname_coord = fname_in
+
+ grid_setup_out%descriptor = gridtype_out
+ ! if out
+     grid_setup_out%dir_mask = dir_out_mask
+     grid_setup_out%fname_mask = fname_out_mask
+ grid_setup_out%dir = dir_out
+ grid_setup_out%fname = fname_out
+ ! if fv3 (will construct mosaic fname later)
+ grid_setup_out%dir_coord = dir_fix
+
 !------------------------
 ! Create esmf grid objects for input and output grids, and add land masks
 
 ! TO DO - can we make the number of tasks more flexible for fv3
 
  if (localpet==0) print*,'** Setting up grids'
- ! for now, input file and input_mask file are the same thing.
- call setup_grid(localpet, npets, gridtype_in, & 
-                  trim(dir_in), trim(fname_in), trim(mask_type), grid_in, &
-                  ires_in, jres_in, trim(dir_fix) )
+ call setup_grid(localpet, npets, grid_setup_in, & 
+                  trim(mask_type), grid_in, &
+                  ires_in, jres_in)
  
- call setup_grid(localpet, npets, gridtype_out, & 
-                  trim(dir_out_mask), trim(fname_out_mask), trim(mask_type), grid_out, &
-                  ires_out, jres_out, trim(dir_fix) )
+ call setup_grid(localpet, npets, grid_setup_out, & 
+                  trim(mask_type), grid_out, &
+                  ires_out, jres_out)
 
 !------------------------
 ! Create input and output fields
@@ -161,8 +185,9 @@
 !------------------------
 ! read data into input fields
 
- call read_into_fields(localpet, ires_in, jres_in, trim(fname_in), gridtype_in, n_vars, &
-                       variable_list(1:n_vars), trim(dir_in), fields_in) 
+ call read_into_fields(localpet, ires_in, jres_in, trim(grid_setup_in%fname), &
+                         trim(grid_setup_in%dir), grid_setup_in, n_vars,      &
+                         variable_list(1:n_vars), fields_in) 
 
  call cpu_time(t2)
 !------------------------
@@ -177,7 +202,7 @@
                             dstField=fields_out(1), dstMaskValues=(/0/), &
                             ! allow unmapped grid cells, without returning error
                             unmappedaction=ESMF_UNMAPPEDACTION_IGNORE, &
-                            ! polemethod=ESMF_POLEMETHOD_ALLAVG, &
+                            polemethod=ESMF_POLEMETHOD_ALLAVG, &
                             ! fill un-mapped grid cells with a neighbour
                             extrapMethod=ESMF_EXTRAPMETHOD_CREEP, & 
                             ! number of "levels" of neighbours to search for a value
@@ -211,8 +236,9 @@
 
  if (localpet==0) print*,'** Writing out regridded fields'
 
- call write_from_fields(localpet, ires_out, jres_out, trim(fname_out),  &
-                        n_vars, variable_list(1:n_vars), trim(dir_out), fields_out)
+ call write_from_fields(localpet, ires_out, jres_out, trim(grid_setup_out%fname),    &
+                          trim(grid_setup_out%dir), n_vars, variable_list(1:n_vars), &
+                          fields_out)
 
 
 ! clean up 
