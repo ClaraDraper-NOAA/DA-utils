@@ -41,6 +41,8 @@
  type(esmf_routehandle)         :: regrid_route
  real(esmf_kind_r8), pointer    :: ptr_out(:,:)
 
+
+
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
@@ -159,7 +161,7 @@
 !------------------------
 ! read data into input fields
 
- call read_into_fields(localpet, ires_in, jres_in, trim(fname_in), n_vars, &
+ call read_into_fields(localpet, ires_in, jres_in, trim(fname_in), gridtype_in, n_vars, &
                        variable_list(1:n_vars), trim(dir_in), fields_in) 
 
  call cpu_time(t2)
@@ -175,7 +177,7 @@
                             dstField=fields_out(1), dstMaskValues=(/0/), &
                             ! allow unmapped grid cells, without returning error
                             unmappedaction=ESMF_UNMAPPEDACTION_IGNORE, &
-                            polemethod=ESMF_POLEMETHOD_ALLAVG, &
+                            ! polemethod=ESMF_POLEMETHOD_ALLAVG, &
                             ! fill un-mapped grid cells with a neighbour
                             extrapMethod=ESMF_EXTRAPMETHOD_CREEP, & 
                             ! number of "levels" of neighbours to search for a value
