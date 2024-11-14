@@ -23,6 +23,8 @@
         character(100) :: dir_mask
         character(100) :: fname_coord
         character(100) :: dir_coord
+        integer        :: ires
+        integer        :: jres
  end type
  
  public :: setup_grid, &
@@ -34,8 +36,7 @@
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
  subroutine setup_grid(localpet, npets, grid_setup,  & 
-                       mask_type, mod_grid, &
-                       ires, jres)
+                       mask_type, mod_grid )
 
  implicit none
 
@@ -43,7 +44,6 @@
  type(grid_setup_type), intent(in)    :: grid_setup
  character(*), intent(in)       :: mask_type
  integer, intent(in)            :: localpet, npets
- integer, intent(in)            :: ires, jres
 
  ! INTENT OUT 
  type(esmf_grid)                :: mod_grid
@@ -61,10 +61,10 @@
 
  select case (grid_setup%descriptor)
  case ('fv3_rst')
-     call create_grid_fv3(ires, trim(grid_setup%dir_coord), npets, localpet ,mod_grid)
+     call create_grid_fv3(grid_setup%ires, trim(grid_setup%dir_coord), npets, localpet ,mod_grid)
      mask_variable(1) = 'vtype          '
  case ('gau_inc')
-     call create_grid_gauss(ires, jres, npets, localpet, mod_grid)
+     call create_grid_gauss(grid_setup%ires, grid_setup%jres, npets, localpet, mod_grid)
      mask_variable(1) = 'soilsnow_mask  '
  case default 
      call error_handler("unknown grid_setup%descriptor in setup_grid", 1)
@@ -84,7 +84,7 @@
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("IN FieldCreate, mask_variable", ierr)
 
-     call read_into_fields(localpet, ires, jres, trim(grid_setup%fname_mask), &
+     call read_into_fields(localpet, grid_setup%ires, grid_setup%jres, trim(grid_setup%fname_mask), &
                              trim(grid_setup%dir_mask), grid_setup, 1, &
                              mask_variable(1), mask_field(1))
 
