@@ -35,6 +35,7 @@
 
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
+
  subroutine setup_grid(localpet, npets, grid_setup,  & 
                        mask_type, mod_grid )
 
@@ -64,14 +65,14 @@
      call create_grid_fv3(grid_setup%ires, trim(grid_setup%dir_coord), npets, localpet ,mod_grid)
      mask_variable(1) = 'vtype          '
  case ('gau_inc')
-     call create_grid_gauss(grid_setup%ires, grid_setup%jres, npets, localpet, mod_grid)
+     call create_grid_gauss(grid_setup, npets, localpet,  mod_grid)
      mask_variable(1) = 'soilsnow_mask  '
  case default 
      call error_handler("unknown grid_setup%descriptor in setup_grid", 1)
  end select
 
 !--------------------------
-! Calcalate and add the mask
+! Calculate and add the mask
 
  if (mask_type=="soil") then 
  ! mask out ocean and glaciers, using vegetation class
@@ -180,13 +181,13 @@
              fname = dir_read//"/"//fname_read
          endif
 
-         print *, 'Reading ', trim(fname)
+         !print *, 'Reading ', trim(fname)
 
          ierr=nf90_open(trim(fname),NF90_NOWRITE,ncid)
          call netcdf_err(ierr, 'opening: '//trim(fname) )
 
          do v =1, n_vars
-             print *, 'Reading ', trim(variable_list(v))
+             !print *, 'Reading ', trim(variable_list(v))
              ierr=nf90_inq_varid(ncid, trim(variable_list(v)), id_var)
              call netcdf_err(ierr, 'reading variable id' )
 
@@ -212,6 +213,107 @@
 
  end subroutine read_into_fields
 
+ ! read lat and lon from history file (Guassian grid), and put into 2D fields
+ ! needed for setting up the Gauusian grid.
+
+ subroutine latlon_read_into_fields(localpet, i_dim, j_dim , fname_read, dir_read, &
+                               grid_setup, variable_list, fields)
+ 
+ implicit none 
+
+ ! INTENT IN
+ integer, intent(in)             :: localpet, i_dim, j_dim
+ character(*), intent(in)        :: fname_read
+ character(*), intent(in)        :: dir_read
+ type(grid_setup_type), intent(in)        :: grid_setup
+
+ character(len=15), dimension(2), intent(in)   :: variable_list
+ 
+ ! INTENT OUT 
+ type(esmf_field), dimension(2), intent(out) :: fields
+
+ ! LOCAL
+ integer                         :: id_var, id_lon, ncid, ierr
+ integer                         :: i,j
+ character(len=500)              :: fname
+ real(esmf_kind_r8)              :: vec_lat(j_dim), vec_lon(i_dim)
+ real(esmf_kind_r8), allocatable :: array_lat(:,:), array_lon(:,:) 
+ character(len=30)               :: vname
+
+ ! Create the fields 
+ do v=1,2
+        vname="gauss_grid_" // trim(var_list(v) 
+        fields(v) = ESMF_FieldCreate(gauss_grid, &
+                                   typekind=ESMF_TYPEKIND_R8, &
+                                   staggerloc=ESMF_STAGGERLOC_CENTER, &
+                                   name=vname, rc=ierr)
+        if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN FieldCreate", ierr)
+ 
+ enddo
+
+ if (localpet==0) then
+     allocate(array_lat(i_dim, j_dim))
+     allocate(array_lon(i_dim, j_dim))
+ else 
+     allocate(array_lat(0,0))
+     allocate(array_lon(0,0))
+ end if
+
+ ! read from restart
+ if (localpet == 0) then
+
+     fname = dir_read//"/"//fname_read
+
+     print *, 'Reading ', trim(fname)
+
+     ierr=nf90_open(trim(fname),NF90_NOWRITE,ncid)
+     call netcdf_err(ierr, 'opening: '//trim(fname) )
+
+     ! read latitude
+     print *, 'Reading ', trim(variable_list(1))
+     ierr=nf90_inq_varid(ncid, trim(variable_list(1)), id_var)
+     call netcdf_err(ierr, 'reading variable id' )
+
+     ierr=nf90_get_var(ncid, id_var, vec_lat)
+     call netcdf_err(ierr, 'reading variable' )
+
+     do i = 1, i_dim
+           array_lat(i,:) =vec_lat
+     enddo
+
+     ! read longitude
+     print *, 'Reading ', trim(variable_list(2))
+     ierr=nf90_inq_varid(ncid, trim(variable_list(2)), id_var)
+     call netcdf_err(ierr, 'reading variable id' )
+
+     ierr=nf90_get_var(ncid, id_var, vec_lon)
+     call netcdf_err(ierr, 'reading variable' )
+     ierr = nf90_close(ncid)
+
+     do i = j, j_dim
+           array_lon(:,j) =vec_lon
+     enddo
+
+  endif
+
+  ! scatter latitude
+  if (localpet==0) print *, 'scattering lat'
+  call ESMF_FieldScatter(fields(1), array_lat, rootpet=0,  rc=ierr)
+  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+     call error_handler("IN FieldScatter", ierr)
+
+  ! scatter longitude
+  if (localpet==0) print *, 'scattering lon'
+  call ESMF_FieldScatter(fields(2), array_lon, rootpet=0,  rc=ierr)
+  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+     call error_handler("IN FieldScatter", ierr)
+ 
+ ! clean up
+ deallocate(array_lat)
+ deallocate(array_lon)
+
+ end subroutine latlon_read_into_fields
 ! write variables from ESMF Fields into netcdf restart-like file 
 
  subroutine write_from_fields(localpet, i_dim, j_dim , fname_out, dir_out, &
@@ -338,19 +440,31 @@
 
  end subroutine create_grid_fv3
 
- subroutine create_grid_gauss(i_dim, j_dim, npets, localpet, gauss_grid)
+ subroutine create_grid_gauss(grid_setup, npets, localpet, gauss_grid)
 
  ! INTENT IN
- integer, intent(in)   :: i_dim, j_dim
+ type(grid_setup_type), intent(in) :: grid_setup
  integer, intent(in)   :: npets, localpet
  
  ! INTENT OUT 
- type(esmf_grid)                :: gauss_grid
+ type(esmf_grid)                   :: gauss_grid
 
- type(esmf_polekind_flag)         :: polekindflag(2)
- integer :: ierr
+ type(esmf_field)                  :: latlon_fields(2)
+ type(esmf_polekind_flag)          :: polekindflag(2)
+ real(esmf_kind_r8), pointer       :: lon_ptr_field(:,:), lon_ptr_coord(:,:)
+ real(esmf_kind_r8), pointer       :: lat_ptr_field(:,:), lat_ptr_coord(:,:)
+ character(len=15), dimension(2)   :: latlon_variables
+
+ integer :: ierr, i_dim, j_dim
 
  polekindflag(1:2) = ESMF_POLEKIND_MONOPOLE
+
+ ! Gaussian increment files lat/lon name
+ latlon_variables(1) = 'latitude'
+ latlon_variables(2) = 'longitude'
+
+ i_dim = grid_setup%ires
+ j_dim = grid_setup%jres
 
  if (localpet == 0) print*," creating gauss grid for ", i_dim, j_dim
  gauss_grid = ESMF_GridCreate1PeriDim(minIndex=(/1,1/), &
@@ -364,5 +478,105 @@
  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
     call error_handler("IN GridCreate1PeriDim", ierr)
 
+ ! read lat lon coordinates into fields
+ call latlon_read_into_fields(localpet, i_dim, j_dim,  &
+                         trim(grid_setup%fname_coord), trim(grid_setup%dir_coord), &
+                         grid_setup, latlon_variables, latlon_fields)
+
+ ! add coordinates to the grid
+ call ESMF_GridAddCoord(gauss_grid, &
+                        staggerloc=ESMF_STAGGERLOC_CENTER, rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN GridAddCoord", ierr)
+
+ nullify(lon_ptr_coord)
+ nullify(lon_ptr_field)
+
+ ! get pointer to lon coord
+ !if (localpet == 0) print*," getting GridCoord for long"
+ print*," getting GridCoord for long", localpet 
+ call ESMF_GridGetCoord(gauss_grid, &
+                        staggerLoc=ESMF_STAGGERLOC_CENTER, &
+                        coordDim=1, &
+                        farrayPtr=lon_ptr_coord, rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN GridGetCoord longitude ", ierr)
+
+ ! fetch lon from field into pointer
+ call ESMF_FieldGet(latlon_fields(2), &
+                    farrayPtr=lon_ptr_field, &
+                    rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN FieldGet longitude", ierr)
+ 
+ ! set coord pointe to field pointer 
+ lon_ptr_coord = lon_ptr_field
+
+ nullify(lat_ptr_coord)
+ nullify(lat_ptr_field)
+ 
+ ! get pointer to lat coord. Need bounds?
+ call ESMF_GridGetCoord(gauss_grid, &
+                        staggerLoc=ESMF_STAGGERLOC_CENTER, &
+                        coordDim=2, &
+                        !computationalLBound=clb, &
+                        !computationalUBound=cub, &
+                        farrayPtr=lat_ptr_coord, rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN GridGetCoord latitude", ierr)
+
+ ! fetch lat from field into pointer 
+ call ESMF_FieldGet(latlon_fields(1), &
+                    farrayPtr=lat_ptr_field, &
+                    rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN FieldGet latitude", ierr)
+
+ ! set lat coord to fiel values 
+ lat_ptr_coord =  lat_ptr_field
+
+ ! assign the corners
+ ! call ESMF_GridAddCoord(input_grid, &
+ !                      staggerloc=ESMF_STAGGERLOC_CORNER, rc=rc)
+ !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+ !   call error_handler("IN GridAddCoord", rc)
+
+ !print*,"- CALL GridGetCoord FOR INPUT GRID X-COORD."
+ !nullify(lon_corner_src_ptr)
+ !call ESMF_GridGetCoord(input_grid, &
+ !                       staggerLoc=ESMF_STAGGERLOC_CORNER, &
+ !                       coordDim=1, &
+ !                       farrayPtr=lon_corner_src_ptr, rc=rc)
+ !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+ !   call error_handler("IN GridGetCoord", rc)
+
+ !print*,"- CALL GridGetCoord FOR INPUT GRID Y-COORD."
+ !nullify(lat_corner_src_ptr)
+ !call ESMF_GridGetCoord(input_grid, &
+ !                       staggerLoc=ESMF_STAGGERLOC_CORNER, &
+ !                       coordDim=2, &
+ !                       computationalLBound=clb, &
+ !                       computationalUBound=cub, &
+ !                       farrayPtr=lat_corner_src_ptr, rc=rc)
+ !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+ !   call error_handler("IN GridGetCoord", rc)
+
+ !do j = clb(2), cub(2)
+ !  do i = clb(1), cub(1)
+ !    lon_corner_src_ptr(i,j) = longitude(i,1) - (0.5_esmf_kind_r8*deltalon)
+ !    if (lon_corner_src_ptr(i,j) > 360.0_esmf_kind_r8) lon_corner_src_ptr(i,j) = lon_corner_src_ptr(i,j) - 360.0_esmf_kind_r8
+ !    if (j == 1) then 
+ !      lat_corner_src_ptr(i,j) = 90.0_esmf_kind_r8
+ !      cycle
+ !    endif
+ !    if (j == jp1_input) then
+ !      lat_corner_src_ptr(i,j) = -90.0_esmf_kind_r8
+ !      cycle
+ !    endif
+ !    lat_corner_src_ptr(i,j) = 0.5_esmf_kind_r8 * (latitude(i,j-1)+ latitude(i,j))
+ !  enddo
+ !enddo
+
  end subroutine create_grid_gauss
+
 end  module grids_IO

@@ -316,7 +316,7 @@
      grid_setup%dir_coord = dir_fix
      grid_setup%ires = ires
      grid_setup%jres = ires ! always same for fv3
- case ("inc_gau") 
+ case ("gau_inc") 
      grid_setup%dir_coord = dir
      grid_setup%fname_coord = fname
      grid_setup%ires = ires
