@@ -266,25 +266,29 @@
  type(grid_setup_type), intent(out) :: grid_setup
 
  character(len=7)   :: gridtype
- character(len=100) :: fname, fname_mask
- character(len=100) :: dir, dir_mask, dir_fix
+ character(len=100) :: fname, fname_mask, fname_coord
+ character(len=100) :: dir, dir_mask, dir_coord
  character(len=4)   :: default_str="NULL"
  integer            :: ires, jres
  integer            :: ierr
 
  namelist /input/  fname, dir, gridtype, &
                    fname_mask, dir_mask, &
-                   dir_fix, ires, jres
+                   fname_coord, dir_coord, &
+                   ires, jres
 
  namelist /output/  fname, dir, gridtype, &
                     fname_mask, dir_mask, &
-                    dir_fix, ires, jres
+                    fname_coord, dir_coord,&
+                    ires, jres
 
  ! set defaults 
  fname = default_str
  dir = default_str
  fname_mask = default_str
  dir_mask = default_str
+ fname_coord = default_str
+ dir_coord = default_str
  ires = 0 
  jres = 0
 
@@ -300,30 +304,22 @@
  grid_setup%dir = dir ! for fv3 and gauss use input file for mask
  grid_setup%fname = fname 
 
+ ! to-do, add routine to check if present.
  select case (namel)
  case ("input") 
-     grid_setup%dir_mask = dir ! for fv3 and gauss use input file for mask
+     grid_setup%dir_mask = dir ! use input file for mask
      grid_setup%fname_mask = fname 
  case ("output")
-     grid_setup%dir_mask = dir_mask ! for fv3 and gauss use input file for mask
+     grid_setup%dir_mask = dir_mask ! need a file on output grid for mask
      grid_setup%fname_mask = fname_mask
  case default 
      call error_handler("unknown namel in readin_setup", 1)
  end select  
 
- select case ( grid_setup%descriptor )
- case ("fv3_rst") 
-     grid_setup%dir_coord = dir_fix
-     grid_setup%ires = ires
-     grid_setup%jres = ires ! always same for fv3
- case ("gau_inc") 
-     grid_setup%dir_coord = dir
-     grid_setup%fname_coord = fname
-     grid_setup%ires = ires
-     grid_setup%jres = jres
- case default
-     call error_handler("unknown grid_setup%descriptor in readin_setup", 1)
- end select
+ grid_setup%dir_coord = dir_coord
+ grid_setup%fname_coord = fname_coord
+ grid_setup%ires = ires
+ grid_setup%jres = jres
 
  end subroutine
 !-------------------------------------------------------------------------
