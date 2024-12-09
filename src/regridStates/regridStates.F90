@@ -25,7 +25,6 @@
  character(len=15)              :: variable_list(max_vars)
  integer                        :: n_vars
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
- character(len=10)              :: mask_type
 
  type(grid_setup_type)          :: grid_setup_in, grid_setup_out
 
@@ -44,7 +43,7 @@
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
- namelist /config/ n_vars, variable_list, missing_value, mask_type
+ namelist /config/ n_vars, variable_list, missing_value
 
 ! INITIALIZE
 !-------------------------------------------------------------------------
@@ -97,11 +96,9 @@
 ! TO DO - can we make the number of tasks more flexible for fv3
 
  if (localpet==0) print*,'** Setting up grids'
- call setup_grid(localpet, npets, grid_setup_in, & 
-                  trim(mask_type), grid_in )
+ call setup_grid(localpet, npets, grid_setup_in, grid_in )
  
- call setup_grid(localpet, npets, grid_setup_out, & 
-                  trim(mask_type), grid_out )
+ call setup_grid(localpet, npets, grid_setup_out, grid_out )
 
 !------------------------
 ! Create input and output fields
@@ -272,12 +269,14 @@
  integer            :: ires, jres
  integer            :: ierr
 
- namelist /input/  fname, dir, gridtype, &
+ namelist /input/  fname, dir, &
+                   gridtype, &
                    fname_mask, dir_mask, &
                    fname_coord, dir_coord, &
                    ires, jres
 
- namelist /output/  fname, dir, gridtype, &
+ namelist /output/  fname, dir, &
+                    gridtype, &
                     fname_mask, dir_mask, &
                     fname_coord, dir_coord,&
                     ires, jres
@@ -292,16 +291,20 @@
  ires = 0 
  jres = 0
 
- if (namel=="input") then
+ select case (namel)
+ case ("input") 
      read(unt, nml=input, iostat=ierr)
      if (ierr /= 0) call error_handler("READING input NAMELIST.", ierr)
- elseif (namel=="output") then
+ case ("output")
      read(unt, nml=output, iostat=ierr)
      if (ierr /= 0) call error_handler("READING input NAMELIST.", ierr)
- endif
+ case default 
+     call error_handler("unknown namel in readin_setup", 1)
+ end select  
 
  grid_setup%descriptor = gridtype
- grid_setup%dir = dir ! for fv3 and gauss use input file for mask
+
+ grid_setup%dir = dir
  grid_setup%fname = fname 
 
  ! to-do, add routine to check if present.
@@ -312,9 +315,17 @@
  case ("output")
      grid_setup%dir_mask = dir_mask ! need a file on output grid for mask
      grid_setup%fname_mask = fname_mask
- case default 
-     call error_handler("unknown namel in readin_setup", 1)
  end select  
+
+ ! set-up mask details, based on file type
+ select case (gridtype) 
+ case ("fv3_rst") ! for history file and restarts, use veg type 
+        grid_setup%mask_variable(1) = "vtype          "
+ case ("gau_inc") ! gsi-output incr files only, use calculated mask
+        grid_setup%mask_variable(1) =  "soilsnow_mask  "  
+ case default 
+     call error_handler("unknown gridtype in readin_setup", 1)
+ end select
 
  grid_setup%dir_coord = dir_coord
  grid_setup%fname_coord = fname_coord

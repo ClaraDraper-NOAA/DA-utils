@@ -15,10 +15,14 @@
  integer, public, parameter  :: n_tiles=6 ! number tiles in fv3 grid
  integer, public, parameter  :: vtype_water=0, & ! TO DO - which veg classification is this?
                                 vtype_landice=15 ! used for soil mask
+ ! mask values for soilsnow_mask calculated in the GSI EnKF
+ integer, public, parameter  :: mtype_water=0, & 
+                                mtype_snow=2
  type, public  :: grid_setup_type
         character(7)   :: descriptor
         character(100) :: fname
         character(100) :: dir
+        character(15)  :: mask_variable(1)
         character(100) :: fname_mask
         character(100) :: dir_mask
         character(100) :: fname_coord
@@ -36,14 +40,12 @@
 !-----------------------------------
 ! Create ESMF grid objects, with mask if requested
 
- subroutine setup_grid(localpet, npets, grid_setup,  & 
-                       mask_type, mod_grid )
+ subroutine setup_grid(localpet, npets, grid_setup, mod_grid )
 
  implicit none
 
  ! INTENT IN
  type(grid_setup_type), intent(in)    :: grid_setup
- character(*), intent(in)       :: mask_type
  integer, intent(in)            :: localpet, npets
 
  ! INTENT OUT 
@@ -55,7 +57,6 @@
  integer(esmf_kind_i4), pointer :: ptr_mask(:,:)
 
  integer                        :: ierr, ncid, tile
- character(len=15)              :: mask_variable(1)
 
 !--------------------------
 ! Create grid object, and set up pet distribution
@@ -63,10 +64,8 @@
  select case (grid_setup%descriptor)
  case ('fv3_rst')
      call create_grid_fv3(grid_setup%ires, trim(grid_setup%dir_coord), npets, localpet ,mod_grid)
-     mask_variable(1) = 'vtype          '
  case ('gau_inc')
      call create_grid_gauss(grid_setup, npets, localpet,  mod_grid)
-     mask_variable(1) = 'soilsnow_mask  '
  case default 
      call error_handler("unknown grid_setup%descriptor in setup_grid", 1)
  end select
@@ -74,56 +73,59 @@
 !--------------------------
 ! Calculate and add the mask
 
- if (mask_type=="soil") then 
  ! mask out ocean and glaciers, using vegetation class
 
-     mask_field(1) = ESMF_FieldCreate(mod_grid, &
-                                       typekind=ESMF_TYPEKIND_R8, &
-                                       staggerloc=ESMF_STAGGERLOC_CENTER, &
-                                       name="input variable for mask", &
-                                       rc=ierr)
-     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("IN FieldCreate, mask_variable", ierr)
+ mask_field(1) = ESMF_FieldCreate(mod_grid, &
+                                   typekind=ESMF_TYPEKIND_R8, &
+                                   staggerloc=ESMF_STAGGERLOC_CENTER, &
+                                   name="input variable for mask", &
+                                   rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN FieldCreate, mask_variable", ierr)
 
-     call read_into_fields(localpet, grid_setup%ires, grid_setup%jres, trim(grid_setup%fname_mask), &
-                             trim(grid_setup%dir_mask), grid_setup, 1, &
-                             mask_variable(1), mask_field(1))
+ call read_into_fields(localpet, grid_setup%ires, grid_setup%jres, trim(grid_setup%fname_mask), &
+                         trim(grid_setup%dir_mask), grid_setup, 1, &
+                         grid_setup%mask_variable(1), mask_field(1))
 
-    ! get pointer to vegtype
-     call ESMF_FieldGet(mask_field(1), &
-                        farrayPtr=ptr_maskvar, &
-                        rc=ierr)
-     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("IN FieldGet", ierr)
+! get pointer to mask
+ call ESMF_FieldGet(mask_field(1), &
+                    farrayPtr=ptr_maskvar, &
+                    rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("IN FieldGet", ierr)
 
-    ! create and get pointer to the mask
-     call ESMF_GridAddItem(mod_grid, &
-                           itemflag=ESMF_GRIDITEM_MASK, &
-                           staggerloc=ESMF_STAGGERLOC_CENTER, &
-                           rc=ierr)
-     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("in GridAddItem mask", ierr)
+! create and get pointer to the mask
+ call ESMF_GridAddItem(mod_grid, &
+                       itemflag=ESMF_GRIDITEM_MASK, &
+                       staggerloc=ESMF_STAGGERLOC_CENTER, &
+                       rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("in GridAddItem mask", ierr)
 
-     call ESMF_GridGetItem(mod_grid, & 
-                           itemflag=ESMF_GRIDITEM_MASK, &
-                           farrayPtr=ptr_mask, &
-                           rc=ierr)
-     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("in GridGetItem mask", ierr)
+ call ESMF_GridGetItem(mod_grid, & 
+                       itemflag=ESMF_GRIDITEM_MASK, &
+                       farrayPtr=ptr_mask, &
+                       rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("in GridGetItem mask", ierr)
 
-    ! calculate the mask
-     ptr_mask = 1 ! initialize land everywhere
-     if (mask_variable(1) == 'vtype          ') then
-         where (nint(ptr_maskvar) == vtype_water )   ptr_mask = 0 ! exclude water
-         where (nint(ptr_maskvar) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
-     end if
+! calculate the mask
+ ptr_mask = 1 ! initialize land everywhere
+ select case (trim(grid_setup%mask_variable(1)))
+ case("vtype") ! removing non-land and glaciers using veg class
+     where (nint(ptr_maskvar) == vtype_water )   ptr_mask = 0 ! exclude water
+     where (nint(ptr_maskvar) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
+ case("soilsnow_mask") ! removing snow and non-land using pre-computed mask
+     where (nint(ptr_maskvar) == mtype_water )   ptr_mask = 0 ! exclude non-soil
+     where (nint(ptr_maskvar) == mtype_snow ) ptr_mask = 0 ! exclude snow
+ case default
+    call error_handler("unknown mask_variable", 1)
+ end select
 
-    ! destroy veg type field
-     call ESMF_FieldDestroy(mask_field(1),rc=ierr)
-     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("DESTROYING FIELD", ierr)
-
-  end if ! mask = soil 
+! destroy veg type field
+ call ESMF_FieldDestroy(mask_field(1),rc=ierr)
+ if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+    call error_handler("DESTROYING FIELD", ierr)
 
  end subroutine setup_grid
 
@@ -181,13 +183,13 @@
              fname = dir_read//"/"//fname_read
          endif
 
-         !print *, 'Reading ', trim(fname)
+         print *, 'Reading ', trim(fname)
 
          ierr=nf90_open(trim(fname),NF90_NOWRITE,ncid)
          call netcdf_err(ierr, 'opening: '//trim(fname) )
 
          do v =1, n_vars
-             !print *, 'Reading ', trim(variable_list(v))
+             print *, 'Reading ', trim(variable_list(v))
              ierr=nf90_inq_varid(ncid, trim(variable_list(v)), id_var)
              call netcdf_err(ierr, 'reading variable id' )
 
@@ -555,8 +557,7 @@
  nullify(lon_ptr_field)
 
  ! get pointer to lon coord
- !if (localpet == 0) print*," getting GridCoord for long"
- print*," getting GridCoord for long", localpet 
+ if (localpet == 0) print*," getting GridCoord for long"
  call ESMF_GridGetCoord(gauss_grid, &
                         staggerLoc=ESMF_STAGGERLOC_CENTER, &
                         coordDim=1, &
@@ -592,7 +593,7 @@
  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("IN FieldGet latitude", ierr)
 
- ! set lat coord to fiel values 
+ ! set lat coord to field values 
  lat_ptr_coord =  lat_ptr_field
 
  ! assign the corners
@@ -637,7 +638,7 @@
  !  enddo
  !enddo
 
- ! TO DO destrot the fields 
+ ! TO DO destroy the fields 
 
  end subroutine create_grid_gauss
 
