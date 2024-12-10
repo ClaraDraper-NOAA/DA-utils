@@ -516,13 +516,14 @@
  type(esmf_grid)                   :: gauss_grid
 
  type(esmf_polekind_flag)          :: polekindflag(2)
+ type(esmf_staggerloc)             :: staggerloc(2)
 
  type(esmf_field)                  :: lon_fields(2)
  type(esmf_field)                  :: lat_fields(2)
  real(esmf_kind_r8), pointer       :: lon_ptr_field(:,:), lon_ptr_coord(:,:)
  real(esmf_kind_r8), pointer       :: lat_ptr_field(:,:), lat_ptr_coord(:,:)
 
- integer :: ierr, i_dim, j_dim
+ integer :: ierr, i_dim, j_dim, v
 
  polekindflag(1:2) = ESMF_POLEKIND_MONOPOLE
 
@@ -546,100 +547,69 @@
  call lonlat_read_into_fields(localpet, i_dim, j_dim,  &
                          trim(grid_setup%fname_coord), trim(grid_setup%dir_coord), &
                          grid_setup, gauss_grid, lon_fields, lat_fields)
-
- ! add coordinates to the grid
- call ESMF_GridAddCoord(gauss_grid, &
-                        staggerloc=ESMF_STAGGERLOC_CENTER, rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-    call error_handler("IN GridAddCoord", ierr)
-
- nullify(lon_ptr_coord)
- nullify(lon_ptr_field)
-
- ! get pointer to lon coord
- if (localpet == 0) print*," getting GridCoord for long"
- call ESMF_GridGetCoord(gauss_grid, &
-                        staggerLoc=ESMF_STAGGERLOC_CENTER, &
-                        coordDim=1, &
-                        farrayPtr=lon_ptr_coord, rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-    call error_handler("IN GridGetCoord longitude ", ierr)
-
- ! fetch lon from field into pointer
- call ESMF_FieldGet(lon_fields(1), &
-                    farrayPtr=lon_ptr_field, &
-                    rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("IN FieldGet longitude", ierr)
  
- ! set coord pointe to field pointer 
- lon_ptr_coord = lon_ptr_field
+ staggerloc = (/ ESMF_STAGGERLOC_CENTER, ESMF_STAGGERLOC_CORNER /)
+ do v = 1,2
+     ! add coordinates to the grid
+     call ESMF_GridAddCoord(gauss_grid, &
+                            staggerloc=staggerloc(v), rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN GridAddCoord", ierr)
 
- nullify(lat_ptr_coord)
- nullify(lat_ptr_field)
- 
- ! get pointer to lat coord. Need bounds?
- call ESMF_GridGetCoord(gauss_grid, &
-                        staggerLoc=ESMF_STAGGERLOC_CENTER, &
-                        coordDim=2, &
-                        farrayPtr=lat_ptr_coord, rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-    call error_handler("IN GridGetCoord latitude", ierr)
+     nullify(lon_ptr_coord)
+     nullify(lon_ptr_field)
 
- ! fetch lat from field into pointer 
- call ESMF_FieldGet(lat_fields(1), &
-                    farrayPtr=lat_ptr_field, &
-                    rc=ierr)
- if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
-        call error_handler("IN FieldGet latitude", ierr)
+     ! get pointer to lon coord
+     if (localpet == 0) print*," getting GridCoord for long"
+     call ESMF_GridGetCoord(gauss_grid, &
+                            staggerLoc=staggerloc(v), &
+                            coordDim=1, &
+                            farrayPtr=lon_ptr_coord, rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN GridGetCoord longitude ", ierr)
 
- ! set lat coord to field values 
- lat_ptr_coord =  lat_ptr_field
+     ! fetch lon from field into pointer
+     call ESMF_FieldGet(lon_fields(v), &
+                        farrayPtr=lon_ptr_field, &
+                        rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+            call error_handler("IN FieldGet longitude", ierr)
+     
+     ! set coord pointe to field pointer 
+     lon_ptr_coord = lon_ptr_field
 
- ! assign the corners
- ! call ESMF_GridAddCoord(input_grid, &
- !                      staggerloc=ESMF_STAGGERLOC_CORNER, rc=rc)
- !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
- !   call error_handler("IN GridAddCoord", rc)
+     nullify(lat_ptr_coord)
+     nullify(lat_ptr_field)
+     
+     ! get pointer to lat coord. Need bounds?
+     call ESMF_GridGetCoord(gauss_grid, &
+                            staggerLoc=staggerloc(v), &
+                            coordDim=2, &
+                            farrayPtr=lat_ptr_coord, rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("IN GridGetCoord latitude", ierr)
 
- !print*,"- CALL GridGetCoord FOR INPUT GRID X-COORD."
- !nullify(lon_corner_src_ptr)
- !call ESMF_GridGetCoord(input_grid, &
- !                       staggerLoc=ESMF_STAGGERLOC_CORNER, &
- !                       coordDim=1, &
- !                       farrayPtr=lon_corner_src_ptr, rc=rc)
- !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
- !   call error_handler("IN GridGetCoord", rc)
+     ! fetch lat from field into pointer 
+     call ESMF_FieldGet(lat_fields(v), &
+                        farrayPtr=lat_ptr_field, &
+                        rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+            call error_handler("IN FieldGet latitude", ierr)
 
- !print*,"- CALL GridGetCoord FOR INPUT GRID Y-COORD."
- !nullify(lat_corner_src_ptr)
- !call ESMF_GridGetCoord(input_grid, &
- !                       staggerLoc=ESMF_STAGGERLOC_CORNER, &
- !                       coordDim=2, &
- !                       computationalLBound=clb, &
- !                       computationalUBound=cub, &
- !                       farrayPtr=lat_corner_src_ptr, rc=rc)
- !if(ESMF_logFoundError(rcToCheck=rc,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
- !   call error_handler("IN GridGetCoord", rc)
+     ! set lat coord to field values 
+     lat_ptr_coord =  lat_ptr_field
+ enddo
 
- !do j = clb(2), cub(2)
- !  do i = clb(1), cub(1)
- !    lon_corner_src_ptr(i,j) = longitude(i,1) - (0.5_esmf_kind_r8*deltalon)
- !    if (lon_corner_src_ptr(i,j) > 360.0_esmf_kind_r8) lon_corner_src_ptr(i,j) = lon_corner_src_ptr(i,j) - 360.0_esmf_kind_r8
- !    if (j == 1) then 
- !      lat_corner_src_ptr(i,j) = 90.0_esmf_kind_r8
- !      cycle
- !    endif
- !    if (j == jp1_input) then
- !      lat_corner_src_ptr(i,j) = -90.0_esmf_kind_r8
- !      cycle
- !    endif
- !    lat_corner_src_ptr(i,j) = 0.5_esmf_kind_r8 * (latitude(i,j-1)+ latitude(i,j))
- !  enddo
- !enddo
-
- ! TO DO destroy the fields 
-
+ ! clean up
+ do v = 1,2
+     call ESMF_FieldDestroy(lat_fields(v),rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("DESTROYING FIELD", ierr)
+     call ESMF_FieldDestroy(lon_fields(v),rc=ierr)
+     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
+        call error_handler("DESTROYING FIELD", ierr)
+ enddo
+  
  end subroutine create_grid_gauss
 
 end  module grids_IO
