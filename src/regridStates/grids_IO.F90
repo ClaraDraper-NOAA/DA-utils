@@ -112,7 +112,7 @@
 ! calculate the mask
  ptr_mask = 1 ! initialize land everywhere
  select case (trim(grid_setup%mask_variable(1)))
- case("vtype") ! removing non-land and glaciers using veg class
+ case("vegetation_type") ! removing non-land and glaciers using veg class
      where (nint(ptr_maskvar) == vtype_water )   ptr_mask = 0 ! exclude water
      where (nint(ptr_maskvar) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
  case("soilsnow_mask") ! removing snow and non-land using pre-computed mask

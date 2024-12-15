@@ -320,7 +320,8 @@
  ! set-up mask details, based on file type
  select case (gridtype) 
  case ("fv3_rst") ! for history file and restarts, use veg type 
-        grid_setup%mask_variable(1) = "vtype          "
+        !grid_setup%mask_variable(1) = "vtype          " ! if getting from a restart
+        grid_setup%mask_variable(1) =  "vegetation_type" ! if getting from fix file
  case ("gau_inc") ! gsi-output incr files only, use calculated mask
         grid_setup%mask_variable(1) =  "soilsnow_mask  "  
  case default 
