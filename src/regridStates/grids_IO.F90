@@ -73,8 +73,6 @@
 !--------------------------
 ! Calculate and add the mask
 
- ! mask out ocean and glaciers, using vegetation class
-
  mask_field(1) = ESMF_FieldCreate(mod_grid, &
                                    typekind=ESMF_TYPEKIND_R8, &
                                    staggerloc=ESMF_STAGGERLOC_CENTER, &
@@ -122,7 +120,7 @@
     call error_handler("unknown mask_variable", 1)
  end select
 
-! destroy veg type field
+! destroy mask field
  call ESMF_FieldDestroy(mask_field(1),rc=ierr)
  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
     call error_handler("DESTROYING FIELD", ierr)
