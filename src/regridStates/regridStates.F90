@@ -297,7 +297,7 @@
      if (ierr /= 0) call error_handler("READING input NAMELIST.", ierr)
  case ("output")
      read(unt, nml=output, iostat=ierr)
-     if (ierr /= 0) call error_handler("READING input NAMELIST.", ierr)
+     if (ierr /= 0) call error_handler("READING output NAMELIST.", ierr)
  case default 
      call error_handler("unknown namel in readin_setup", 1)
  end select  
