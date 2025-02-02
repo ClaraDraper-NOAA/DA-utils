@@ -23,18 +23,18 @@
  
  ! namelist inputs
  character(len=15)              :: variable_list(max_vars)
- integer                        :: n_vars
+ integer                        :: n_vars, n_tims
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
 
  type(grid_setup_type)          :: grid_setup_in, grid_setup_out
 
  integer                        :: ierr, localpet, npets
- integer                        :: v, SRCTERM
+ integer                        :: v, t, SRCTERM
  
  type(esmf_vm)                  :: vm
  type(esmf_grid)                :: grid_in, grid_out
- type(esmf_field), allocatable  :: fields_in(:)
- type(esmf_field), allocatable  :: fields_out(:) 
+ type(esmf_field), allocatable  :: fields_in(:,:) 
+ type(esmf_field), allocatable  :: fields_out(:,:) 
  type(esmf_routehandle)         :: regrid_route
  real(esmf_kind_r8), pointer    :: ptr_out(:,:)
  
@@ -43,7 +43,7 @@
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
- namelist /config/ n_vars, variable_list, missing_value
+ namelist /config/ n_vars, n_tims,variable_list, missing_value
 
 ! INITIALIZE
 !-------------------------------------------------------------------------
@@ -79,7 +79,9 @@
 !------------------------
 ! read in namelist
 
- missing_value=-999. ! set defualt
+ ! defaults
+ missing_value=-999. 
+ n_tims=1 
 
  open(newunit=ut, file='regrid.nml', iostat=ierr)
  if (ierr /= 0) call error_handler("OPENING regrid NAMELIST.", ierr)
@@ -103,16 +105,15 @@
 !------------------------
 ! Create input and output fields
 
-! TODO - think about 3-D fields
-
  if (localpet==0) print*,'** Creating/Reading fields'
 
 ! input
- allocate(fields_in(n_vars)) 
+ allocate(fields_in(n_tims,n_vars)) 
 
+ do t = 1, n_tims
  do v = 1, n_vars
 
-    fields_in(v)  = ESMF_FieldCreate(grid_in, &
+    fields_in(t,v)  = ESMF_FieldCreate(grid_in, &
                         typekind=ESMF_TYPEKIND_R8, &
                         staggerloc=ESMF_STAGGERLOC_CENTER, &
                         name="input for regridding", &
@@ -121,13 +122,15 @@
     if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
        call error_handler("in FieldCreate "//trim(variable_list(v)), ierr)
  end do
+ end do
 
 ! output
- allocate(fields_out(n_vars)) 
+ allocate(fields_out(n_tims,n_vars)) 
 
+ do t = 1, n_tims
  do v = 1, n_vars
 
-     fields_out(v)  = ESMF_FieldCreate(grid_out, &
+     fields_out(t,v)  = ESMF_FieldCreate(grid_out, &
                                        typekind=ESMF_TYPEKIND_R8, &
                                        staggerloc=ESMF_STAGGERLOC_CENTER, &
                                        name="output of regridding", &
@@ -137,7 +140,7 @@
 
 
      ! set the default output value (for non-mapped cells) 
-     call ESMF_FieldGet(fields_out(v), &
+     call ESMF_FieldGet(fields_out(t,v), &
                         farrayPtr=ptr_out, &
                         rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
@@ -146,13 +149,17 @@
      ptr_out=missing_value
 
  enddo
+ enddo
 
 !------------------------
 ! read data into input fields
 
- call read_into_fields(localpet, grid_setup_in%ires, grid_setup_in%jres, &
-                         trim(grid_setup_in%fname), trim(grid_setup_in%dir), &
-                         grid_setup_in, n_vars, variable_list(1:n_vars), fields_in) 
+! CSD. 2 readin different times
+ do t = 1, n_tims
+        call read_into_fields(localpet, grid_setup_in%ires, grid_setup_in%jres, &
+                                 trim(grid_setup_in%fname), trim(grid_setup_in%dir), &
+                                 grid_setup_in, n_vars, variable_list(1:n_vars), fields_in(t,:)) 
+ enddo
 
  call cpu_time(t2)
 !------------------------
@@ -163,8 +170,8 @@
  SRCTERM=1
  ! get regriding route for a field (only uses the grid info in the field)
  ! to turn off masking, remove [src/dstMaskVales] argumemnts
- call ESMF_FieldRegridStore(srcField=fields_in(1), srcMaskValues=(/0/), &
-                            dstField=fields_out(1), dstMaskValues=(/0/), &
+ call ESMF_FieldRegridStore(srcField=fields_in(1,1), srcMaskValues=(/0/), &
+                            dstField=fields_out(1,1), dstMaskValues=(/0/), &
                             ! allow unmapped grid cells, without returning error
                             unmappedaction=ESMF_UNMAPPEDACTION_IGNORE, &
                             polemethod=ESMF_POLEMETHOD_ALLAVG, &
@@ -185,25 +192,27 @@
 
  call cpu_time(t3)
 
+ do t=1, n_tims
  do v=1, n_vars
-     call ESMF_FieldRegrid(fields_in(v), &
-                           fields_out(v), &
+     call ESMF_FieldRegrid(fields_in(t,v), &
+                           fields_out(t,v), &
                            routehandle=regrid_route, &
                            zeroregion=ESMF_REGION_SELECT, & ! initialize output with missing_value
                            termorderflag=ESMF_TERMORDER_SRCSEQ, rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
       call error_handler("IN FieldRegrid", ierr)
  enddo
+ enddo
 
 ! TO-DO: terrain-correct temperatures (all layers?)
 
-! write out fields on destination grid
+! write out fields on destination grid. All times into same file.
 
  if (localpet==0) print*,'** Writing out regridded fields'
 
- call write_from_fields(localpet, grid_setup_out%ires, grid_setup_out%jres, &
+ call write_from_fields(localpet, grid_setup_out%ires, grid_setup_out%jres, n_tims, &
                           trim(grid_setup_out%fname), trim(grid_setup_out%dir), &
-                          n_vars, variable_list(1:n_vars), fields_out)
+                          n_vars, n_tims, variable_list(1:n_vars), fields_out)
 
 
 ! clean up 
@@ -212,14 +221,16 @@
  if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
     call error_handler("IN FieldRegridRelease", ierr)
  
+ do t = 1, n_tims
  do v = 1, n_vars
-     call ESMF_FieldDestroy(fields_in(v),rc=ierr)
+     call ESMF_FieldDestroy(fields_in(t,v),rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
             call error_handler("DESTROYING FIELD", ierr)
 
-     call ESMF_FieldDestroy(fields_out(v),rc=ierr)
+     call ESMF_FieldDestroy(fields_out(t,v),rc=ierr)
      if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
         call error_handler("DESTROYING FIELD", ierr)
+ enddo
  enddo
 
  call ESMF_GridDestroy(grid_in,rc=ierr)
