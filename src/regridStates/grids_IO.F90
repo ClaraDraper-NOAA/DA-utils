@@ -380,17 +380,17 @@
  end subroutine lonlat_read_into_fields
 ! write variables from ESMF Fields into netcdf restart-like file 
 
- subroutine write_from_fields(localpet, i_dim, j_dim , t_dim, fname_out, dir_out, &
+ subroutine write_from_fields(localpet, i_dim, j_dim , fname_out, dir_out, &
                                 n_vars, n_tims, variable_list, fields) 
 
  implicit none 
 
  ! INTENT IN
- integer, intent(in)             :: localpet, i_dim, j_dim, t_dim, n_vars, n_tims
+ integer, intent(in)             :: localpet, i_dim, j_dim,  n_vars, n_tims
  character(*), intent(in)        :: fname_out
  character(*), intent(in)        :: dir_out
  character(15), dimension(n_vars), intent(in)     :: variable_list
- type(esmf_field), dimension(t_dim,n_vars), intent(in)  :: fields
+ type(esmf_field), dimension(n_tims,n_vars), intent(in)  :: fields
 
  ! LOCAL
  integer                         :: tt, id_var, ncid, ierr, &
@@ -405,7 +405,7 @@
  enddo
 
  if (localpet==0) then
-     allocate(array_out(n_tims, n_vars, i_dim, j_dim))
+     allocate(array_out(n_vars, i_dim, j_dim, n_tims))
      allocate(array2D(i_dim, j_dim))
  else 
      allocate(array_out(0,0,0,0))
@@ -420,7 +420,7 @@
           call ESMF_FieldGather(fields(t,v), array2D, rootPet=0, tile=tt, rc=ierr)
           if(ESMF_logFoundError(rcToCheck=ierr,msg=ESMF_LOGERR_PASSTHRU,line=__LINE__,file=__FILE__)) &
              call error_handler("IN FieldGather", ierr)
-          array_out(t,v,:,:) = array2D
+          array_out(v,:,:,t) = array2D
       enddo
       enddo
 
@@ -434,35 +434,39 @@
          ierr = nf90_create(trim(fname), NF90_NETCDF4, ncid)
          call netcdf_err(ierr, 'creating file='//trim(fname) )
 
+         if (n_tims>1) then ! UFS_UTILS expects input with no time dim
+                           ! GFS (for IAU) expects a time dimension 
+                           ! later: update GFS to not expect a time dimension
+             ierr = nf90_def_dim(ncid, 'Time', n_tims, id_t)
+             call netcdf_err(ierr, 'defining taxis dimension' )
+         endif
+
          ierr = nf90_def_dim(ncid, 'xaxis_1', i_dim, id_x)
          call netcdf_err(ierr, 'defining xaxis dimension' )
 
          ierr = nf90_def_dim(ncid, 'yaxis_1', j_dim, id_y)
          call netcdf_err(ierr, 'defining yaxis dimension' )
 
-         if (n_tims>1) then ! UFS_UTILS expects input with no time dim
-                           ! GFS (for IAU) expects a time dimension 
-                           ! later: update GFS to not expect a time dimension
-             ierr = nf90_def_dim(ncid, 'taxis_1', t_dim, id_t)
-             call netcdf_err(ierr, 'defining taxis dimension' )
-         endif
 
          do v=1, n_vars
 
              if (n_tims>1) then
+                 ! UFS model code to read in the increments is expecting
+                 ! dimensions: time, y, x (in the ncdump read out - which reverses fortran indexes) 
+                 ! need dimensions to be x,y,t below.
                  ierr = nf90_def_var(ncid, trim(variable_list(v)), NF90_DOUBLE, &
-                                     (/id_t,id_x, id_y/) , id_var)
-             else
+                                     (/id_x, id_y, id_t/) , id_var)
+
+                 call netcdf_err(ierr, 'defining '//variable_list(v) )
+             else 
                  ierr = nf90_def_var(ncid, trim(variable_list(v)), NF90_DOUBLE, &
                                      (/id_x, id_y/) , id_var)
              endif
 
              call netcdf_err(ierr, 'defining '//variable_list(v) )
              
-             do t =1, n_tims
-                ierr = nf90_put_var( ncid, id_var, array_out(t,v,:,:) ) 
-                call netcdf_err(ierr, 'writing '//variable_list(v) ) 
-             enddo
+             ierr = nf90_put_var( ncid, id_var, array_out(v,:,:,:) ) 
+             call netcdf_err(ierr, 'writing '//variable_list(v) ) 
 
          enddo
 

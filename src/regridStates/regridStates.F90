@@ -23,6 +23,7 @@
  
  ! namelist inputs
  character(len=15)              :: variable_list(max_vars)
+ character(len=2)               :: time_list(9)
  integer                        :: n_vars, n_tims
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
 
@@ -30,6 +31,8 @@
 
  integer                        :: ierr, localpet, npets
  integer                        :: v, t, SRCTERM
+  
+ character(100)                 :: fname_time
  
  type(esmf_vm)                  :: vm
  type(esmf_grid)                :: grid_in, grid_out
@@ -43,7 +46,7 @@
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
- namelist /config/ n_vars, n_tims,variable_list, missing_value
+ namelist /config/ n_vars, n_tims, time_list, variable_list, missing_value
 
 ! INITIALIZE
 !-------------------------------------------------------------------------
@@ -154,10 +157,16 @@
 !------------------------
 ! read data into input fields
 
-! CSD. 2 readin different times
  do t = 1, n_tims
+
+        if (n_tims>1) then
+                fname_time = trim(grid_setup_in%fname)//"."//time_list(t)
+        else
+                fname_time = trim(grid_setup_in%fname)
+        endif
+        write(6,*) 'reading into ', trim(fname_time)
         call read_into_fields(localpet, grid_setup_in%ires, grid_setup_in%jres, &
-                                 trim(grid_setup_in%fname), trim(grid_setup_in%dir), &
+                                 trim(fname_time), trim(grid_setup_in%dir), &
                                  grid_setup_in, n_vars, variable_list(1:n_vars), fields_in(t,:)) 
  enddo
 
@@ -210,7 +219,7 @@
 
  if (localpet==0) print*,'** Writing out regridded fields'
 
- call write_from_fields(localpet, grid_setup_out%ires, grid_setup_out%jres, n_tims, &
+ call write_from_fields(localpet, grid_setup_out%ires, grid_setup_out%jres,     &
                           trim(grid_setup_out%fname), trim(grid_setup_out%dir), &
                           n_vars, n_tims, variable_list(1:n_vars), fields_out)
 
