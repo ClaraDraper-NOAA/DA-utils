@@ -24,7 +24,7 @@
  ! namelist inputs
  character(len=15)              :: variable_list(max_vars)
  character(len=2)               :: time_list(9)
- integer                        :: n_vars, n_tims
+ integer                        :: n_vars, n_tims, extrap_levs
  real(esmf_kind_r8)             :: missing_value ! value given to unmapped cells in the output grid
 
  type(grid_setup_type)          :: grid_setup_in, grid_setup_out
@@ -46,7 +46,7 @@
  real :: t1, t2, t3, t4
 
  ! see README for details of namelist variables.
- namelist /config/ n_vars, n_tims, time_list, variable_list, missing_value
+ namelist /config/ n_vars, n_tims, time_list, variable_list, missing_value, extrap_levs
 
 ! INITIALIZE
 !-------------------------------------------------------------------------
@@ -84,6 +84,7 @@
 
  ! defaults
  missing_value=-999. 
+ extrap_levs=2
  n_tims=1 
 
  open(newunit=ut, file='regrid.nml', iostat=ierr)
@@ -187,7 +188,7 @@
                             ! fill un-mapped grid cells with a neighbour
                             extrapMethod=ESMF_EXTRAPMETHOD_CREEP, & 
                             ! number of "levels" of neighbours to search for a value
-                            extrapNumLevels=2, &
+                            extrapNumLevels=extrap_levs, &
                             ! needed for reproducibility
                             ! (combined with ESMF_TERMORDER_SRCSEQ below)
                             srctermprocessing=SRCTERM, & 
@@ -327,23 +328,21 @@
  grid_setup%dir = dir
  grid_setup%fname = fname 
 
- ! to-do, add routine to check if present.
- select case (namel)
- case ("input") 
-     grid_setup%dir_mask = dir ! use input file for mask
-     grid_setup%fname_mask = fname 
- case ("output")
-     grid_setup%dir_mask = dir_mask ! need a file on output grid for mask
-     grid_setup%fname_mask = fname_mask
- end select  
-
  ! set-up mask details, based on file type
  select case (gridtype) 
  case ("fv3_rst") ! for history file and restarts, use veg type 
-        !grid_setup%mask_variable(1) = "vtype          " ! if getting from a restart
-        grid_setup%mask_variable(1) =  "vegetation_type" ! if getting from fix file
+     grid_setup%dir_mask = dir_mask ! get from a fix file
+     grid_setup%fname_mask = fname_mask
+     grid_setup%mask_variable(1) =  "vegetation_type" ! if getting from fix file
  case ("gau_inc") ! gsi-output incr files only, use calculated mask
-        grid_setup%mask_variable(1) =  "soilsnow_mask  "  
+     if (trim(fname_mask) == default_str) then ! if not specified, use input file
+         grid_setup%dir_mask = dir 
+         grid_setup%fname_mask = fname 
+     else
+         grid_setup%dir_mask = dir_mask
+         grid_setup%fname_mask = fname_mask
+     endif
+     grid_setup%mask_variable(1) =  "soilsnow_mask  "  
  case default 
      call error_handler("unknown gridtype in readin_setup", 1)
  end select
