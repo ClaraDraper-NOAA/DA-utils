@@ -17,6 +17,7 @@
                                 vtype_landice=15 ! used for soil mask
  ! mask values for soilsnow_mask calculated in the GSI EnKF
  integer, public, parameter  :: mtype_water=0, &
+                                mtype_land=1, &
                                 mtype_snow=2
  type, public  :: grid_setup_type
         character(7)   :: descriptor
@@ -113,9 +114,9 @@
  case("vegetation_type") ! removing non-land and glaciers using veg class
      where (nint(ptr_maskvar) == vtype_water )   ptr_mask = 0 ! exclude water
      where (nint(ptr_maskvar) == vtype_landice ) ptr_mask = 0 ! exclude glaciers
- case("soilsnow_mask") ! removing snow and non-land using pre-computed mask
+ case("soilsnow_mask") ! removing non-snow land and non-land using pre-computed mask
      where (nint(ptr_maskvar) == mtype_water )   ptr_mask = 0 ! exclude non-soil
-     where (nint(ptr_maskvar) == mtype_snow ) ptr_mask = 0 ! exclude snow
+     where (nint(ptr_maskvar) == mtype_land ) ptr_mask = 0 ! exclude snow
  case default
     call error_handler("unknown mask_variable", 1)
  end select

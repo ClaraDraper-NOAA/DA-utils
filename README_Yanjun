@@ -1,0 +1,10 @@
+To compile regridding tool in stand-alone mode: 
+
+> bash 
+> source env_GDASApp
+> mkdir build
+> cd build
+> ecbuild ../bundle
+> make
+
+
